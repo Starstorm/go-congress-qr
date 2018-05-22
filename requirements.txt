@@ -2,6 +2,7 @@ certifi==2018.4.16
 click==6.7
 Flask==1.0.2
 Flask-SQLAlchemy==2.3.2
+gunicorn==19.8.1
 itsdangerous==0.24
 Jinja2==2.10
 MarkupSafe==1.0
@@ -11,4 +12,3 @@ SQLAlchemy==1.2.7
 virtualenv==16.0.0
 virtualenv-clone==0.3.0
 Werkzeug==0.14.1
-gunicorn
