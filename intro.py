@@ -158,7 +158,12 @@ def testbasic():
 @app.route('/table')
 def table():
  table = request.args.get('table')
- return display_results("SELECT * FROM " + table + " LIMIT 50;")
+ year = request.args.get('year')
+ if year:
+  add_on = " WHERE year=" + str(year)
+ else:
+  add_on = ''
+ return str(display_results("SELECT * FROM " + table + add_on + ";"))
 
 if __name__ == '__main__':
  from flask_sqlalchemy import get_debug_queries
