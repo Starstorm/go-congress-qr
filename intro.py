@@ -155,7 +155,7 @@ def testbasic():
   sum_total += float(get_price_from_id("activities",activity['activity_id'],year))
  return str(all_plans) + "<br/><br/>" + str(all_activities) + "<br/><br/>" + str(sum_total) + "<br/>" + str(amounts) + "<br/>" + str(get_user('3667'))
 
-@app.route('/table')
+'''@app.route('/table')
 def table():
  table = request.args.get('table')
  year = request.args.get('year')
@@ -163,7 +163,7 @@ def table():
   add_on = " WHERE year=" + str(year)
  else:
   add_on = ''
- return str(display_results("SELECT * FROM " + table + add_on + ";"))
+ return str(display_results("SELECT * FROM " + table + add_on + ";"))'''
 
 if __name__ == '__main__':
  from flask_sqlalchemy import get_debug_queries
