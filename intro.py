@@ -1,11 +1,24 @@
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 import os
+import hashlib
 
 app = Flask("intro")
 DATABASE_DEFAULT = 'postgres://khcldsyzgxvrin:b51bfd22c549f378c286cd20547978566232396a832143100ef576fd167bd9b2@ec2-107-20-188-239.compute-1.amazonaws.com:5432/dbl3c7ninomm7r'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', DATABASE_DEFAULT)
 db = SQLAlchemy(app)
+
+def get_email_hash(id, year, is_user=False):
+ if not is_user:
+  resp = display_results("SELECT email FROM attendees WHERE id=" + id + " AND year=" + str(year)  + ";")
+ else:
+  resp = display_results("SELECT email FROM users WHERE id=" + id + " AND year=" + str(year) + ";")
+ if len(resp) == 1:
+  email = resp[0]['email']
+ else:
+  return False
+ hash_object = hashlib.sha1(email)
+ return hash_object.hexdigest()
 
 def is_int(s):
  try:
@@ -92,6 +105,7 @@ def testadv():
  attendee_id = request.args.get('attendee_id')
  user_id = request.args.get('user_id')
  year = request.args.get('year')
+ email_hash = request.args.get('hash')
  if user_id and year and is_int(user_id) and is_int(year) and not attendee_id:
   is_user = True
   id = user_id
@@ -100,7 +114,14 @@ def testadv():
   id = attendee_id
  else:
   return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
- year = request.args.get('year')
+ #if not email_hash:
+  #return "FLAWED QR CODE!!!"
+ #else:
+  #site_hash = get_user_hash(id,year,is_user)
+  #if not site_hash:
+   #return "Could not get site hash!!"
+  #elif email_hash != site_hash:
+   #return "THE HASHES DON'T MATCH!!"
  all_paid = get_paid_total(id, year, is_user=is_user)
  if not all_paid and all_paid != 0:
   return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
