@@ -1,1 +1,1 @@
-web: gunicorn -b :$PORT intro:app
+web: python intro:app
