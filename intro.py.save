@@ -1,29 +1,11 @@
 from flask import Flask, request
 from flask_sqlalchemy import SQLAlchemy
 import os
-import hashlib
-import pandas as pd
-from delorean import parse
 
 app = Flask("intro")
 DATABASE_DEFAULT = 'postgres://khcldsyzgxvrin:b51bfd22c549f378c286cd20547978566232396a832143100ef576fd167bd9b2@ec2-107-20-188-239.compute-1.amazonaws.com:5432/dbl3c7ninomm7r'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', DATABASE_DEFAULT)
 db = SQLAlchemy(app)
-with open("tdlista.txt","r") as my_file:
- text = [line.replace("\n","").split("\t") for line in my_file.readlines()]
- df = pd.DataFrame(text, columns=["Name","agaid","memtype","rating","expiry","club","state","sigma","joined"])
-
-def get_email_hash(id, year, is_user=False):
- if not is_user:
-  resp = display_results("SELECT email FROM attendees WHERE id=" + id + " AND year=" + str(year)  + ";")
- else:
-  resp = display_results("SELECT email FROM users WHERE id=" + id + " AND year=" + str(year) + ";")
- if len(resp) == 1:
-  email = resp[0]['email']
- else:
-  return False
- hash_object = hashlib.sha1(email)
- return hash_object.hexdigest()
 
 def is_int(s):
  try:
@@ -88,7 +70,7 @@ def get_paid_total(id, year, is_user=False):
    return False
  else:
   cur_user = id
- all_trans = display_results("SELECT trantype,amount FROM transactions WHERE user_id=" + str(cur_user) + " AND year=" + str(year) + ";")
+ all_trans = display_results("SELECT trantype,amount FROM transactions WHERE user_id=" + str(cur_user) + "AND year=" + str(year) + ";")
  all_refund = 0
  all_comp = 0
  all_sale = 0
@@ -101,36 +83,6 @@ def get_paid_total(id, year, is_user=False):
    all_sale += tran['amount']
  return all_sale,all_comp,all_refund
 
-def check_aga_member(id, year):
- aga_id = display_results("SELECT aga_id FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
- if len(aga_id) == 1:
-  return aga_id[0]['aga_id']
- else:
-  return False
-
-def is_current_membership(df, aga_id):
- if not aga_id:
-  no_aga_id = True
-  return False
- else:
-  member = df[(df['agaid'] == aga_id)]
-  if len(member) == 0:
-   aga_id_not_found = True
-   return False
-  else:
-   db_datetime = parse(member['expiry'], dayfirst=False, yearfirst=False).datetime
-   end_date = parse("July 26th, 2018").datetime
-   if db_datetime < end_date:
-    no_membership = True
-    return False
- return True
-  
-def is_minor_good(id, year):
- results = display_results("SELECT understand_minor,minor_agreement_received FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
- if results[0]['understand_minor'] == 't' and results[0]['minor_agreement_received'] == 'f':
-  return False
- return True
-  
 @app.route('/basic')
 def basic():
  return "Hello World!!!"
@@ -139,62 +91,28 @@ def basic():
 def testadv():
  attendee_id = request.args.get('attendee_id')
  user_id = request.args.get('user_id')
- year = request.args.get('year')
- email_hash = request.args.get('hash')
- aga_id_error = False
- minor_bad = False
- membership_notes = ""
- 
- if user_id and year and is_int(user_id) and is_int(year) and not attendee_id:
+ if user_id and not attendee_id:
+  if not is_int(user_id):
+   return "Y
   is_user = True
   id = user_id
-  all_atts = get_atts_from_user(id, year)
-  for att in all_atts:
-   aga_id = check_aga_member(att, year)
-   if not is_current_membership(df,aga_id):
-    aga_id_error = True
-   if not is_minor_good(att,year):
-    minor_bad = True
-	  
- elif attendee_id and year and is_int(attendee_id) and is_int(year) and not user_id:
+ elif is_int(attendee_id) and not user_id:
   is_user = False
   id = attendee_id
-  aga_id = check_aga_member(id, year)
-  if not is_current_membership(df,aga_id):
-   aga_id_error = True
-  if not is_minor_good(id,year):
-   minor_bad = True
  else:
-  return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
- #if not email_hash:
-  #return "FLAWED QR CODE!!!"
- #else:
-  #site_hash = get_user_hash(id,year,is_user)
-  #if not site_hash:
-   #return "Could not get site hash!!"
-  #elif email_hash != site_hash:
-   #return "THE HASHES DON'T MATCH!!"
+  return "You're trying to break me! Bad boy, you failed!1"
+ year = request.args.get('year')
  all_paid = get_paid_total(id, year, is_user=is_user)
- 
  if not all_paid and all_paid != 0:
-  return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
+  return "You're trying to break me! Bad boy, you failed!2"
  user_paid = all_paid[0]/100 + all_paid[1]/100
  user_refund = all_paid[2]/100
  invoice_total = get_invoice_total(id, year, is_user=is_user)
  if not invoice_total and invoice_total != 0:
-  return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
+  return "You're trying to break me! Bad boy, you failed!3"
  else:
   invoice_total = invoice_total/100
- total_due = invoice_total - user_paid + user_refund
- if total_due <= 0 and aga_id_error == False and minor_bad == False:
-  format = "<style>body{background-color: green}</style>All Paid Up!<br/>"
- elif total_due > 0:
-  format = "<style>body{background-color: yellow}</style>SIGN-IN FAILED: Money is owed to the Congress<br/>"
- elif aga_id_error:
-  format = "<style>body{background-color: yellow}</style>SIGN-IN FAILED: Could not find current AGA membership.<br/>"
- elif minor_bad:
-  format = "<style>body{background-color: yellow}</style>SIGN-IN FAILED: Minor does not have signed waiver.<br/>"
- return format + "The user was invoiced: $" + str(invoice_total) + "<br/>The user paid/was comped: $" + str(user_paid) + "<br/>The user was refunded: $" + str(user_refund) + "<br/>Therefore, the user's final total owed is: $" + str(total_due)
+ return  "The user was invoiced: $" + str(invoice_total) + "<br/>The user paid/was comped: $" + str(user_paid) + "<br/>The user was refunded: $" + str(user_refund) + "<br/>Therefore, the user's final total owed is: $" + str((invoice_total - user_paid + user_refund))
 
 @app.route('/testbasic')
 def testbasic():
@@ -212,15 +130,10 @@ def testbasic():
   sum_total += float(get_price_from_id("activities",activity['activity_id'],year))
  return str(all_plans) + "<br/><br/>" + str(all_activities) + "<br/><br/>" + str(sum_total) + "<br/>" + str(amounts) + "<br/>" + str(get_user('3667'))
 
-'''@app.route('/table')
+@app.route('/table')
 def table():
  table = request.args.get('table')
- year = request.args.get('year')
- if year:
-  add_on = " WHERE year=" + str(year)
- else:
-  add_on = ''
- return str(display_results("SELECT * FROM " + table + add_on + ";"))'''
+ return display_results("SELECT * FROM " + table + " LIMIT 50;")
 
 if __name__ == '__main__':
  from flask_sqlalchemy import get_debug_queries
