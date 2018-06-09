@@ -9,6 +9,7 @@ app = Flask("intro")
 DATABASE_DEFAULT = 'postgres://khcldsyzgxvrin:b51bfd22c549f378c286cd20547978566232396a832143100ef576fd167bd9b2@ec2-107-20-188-239.compute-1.amazonaws.com:5432/dbl3c7ninomm7r'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', DATABASE_DEFAULT)
 db = SQLAlchemy(app)
+font_size = "10"
 
 with open("tdlista.txt","r") as my_file:
  text = [line.replace("\n","").split("\t") for line in my_file.readlines()]
@@ -129,7 +130,7 @@ def is_current_membership(df, aga_id):
   
 def is_minor_good(id, year):
  results = display_results("SELECT understand_minor,minor_agreement_received FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
- if results[0]['understand_minor'] == 't' and results[0]['minor_agreement_received'] == 'f':
+ if results[0]['understand_minor'] == True and results[0]['minor_agreement_received'] == False:
   return False
  return True
   
@@ -192,14 +193,18 @@ def testadv():
  else:
   invoice_total = invoice_total/100
  total_due = invoice_total - user_paid + user_refund
+ base_yellow = '<style>body{background-color: yellow}</style>'
+ format = ''
  if total_due <= 0 and aga_id_error == False and minor_bad == False:
-  format = "<style>body{background-color: green}</style>All Paid Up!<br/>"
- elif total_due > 0:
-  format = "<style>body{background-color: yellow}</style>SIGN-IN FAILED: Money is owed to the Congress<br/>"
- elif aga_id_error:
-  format = "<style>body{background-color: yellow}</style>SIGN-IN FAILED: Could not find current AGA membership.<br/>"
- elif minor_bad:
-  format = "<style>body{background-color: yellow}</style>SIGN-IN FAILED: Minor does not have signed waiver.<br/>"
+  format = "<style>body{background-color: green}</style><font size=\"" + font_size + "\">All Paid Up!</font><br/>"
+ if total_due > 0:
+  format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Money is owed to the Congress</font><br/>"
+ if aga_id_error:
+  format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Could not find current AGA membership.</font><br/>"
+ if minor_bad:
+  format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Minor does not have signed waiver.</font><br/>"
+ if 'style' not in format:
+  format = base_yellow + format
  return format + "The user was invoiced: $" + str(invoice_total) + "<br/>The user paid/was comped: $" + str(user_paid) + "<br/>The user was refunded: $" + str(user_refund) + "<br/>Therefore, the user's final total owed is: $" + str(total_due)
 
 @app.route('/testbasic')
@@ -214,15 +219,21 @@ def testbasic():
   my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?user_id=" + str(my_dict['id']) + "&year=" + str(my_dict['year']) + "<br/>"
  return my_string
  
-'''@app.route('/table')
+@app.route('/table')
 def table():
- table = request.args.get('table')
  year = request.args.get('year')
- if year:
-  add_on = " WHERE year=" + str(year)
- else:
-  add_on = ''
- return str(display_results("SELECT * FROM " + table + add_on + ";"))'''
+ results = display_results("SELECT id,year,understand_minor,minor_agreement_received FROM attendees WHERE understand_minor='t' AND year=" + str(year))
+ my_string = ""
+ for result in results:
+  if result['minor_agreement_received'] == False:
+   my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?attendee_id=" + str(result['id']) + "&year=" + str(result['year']) + "<br/>"
+ my_string += "<br/><br/>TRUE<br/><br/>"
+ for result in results:
+  if result['minor_agreement_received'] == True:
+   my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?attendee_id=" + str(result['id']) + "&year=" + str(result['year']) + "<br/>"
+ return my_string
+
+ return str(display_results("SELECT * FROM " + table + add_on + ";"))
 
 if __name__ == '__main__':
  from flask_sqlalchemy import get_debug_queries
