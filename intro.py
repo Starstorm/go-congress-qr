@@ -147,28 +147,37 @@ def testadv():
  aga_id_error = False
  minor_bad = False
  membership_notes = ""
+ extra_text = "<br/><font size=\"" + font_size + "\">EXTRA INFORMATION:</font><br/>"
  
  if user_id and year and is_int(user_id) and is_int(year) and not attendee_id:
   is_user = True
+  extra_text += "<font size=\"" + font_size + "\">USER ID FOUND, Multple Attendees Possible</font><br/>"
   id = user_id
   # Get all attendees associated with user
   all_atts = get_atts_from_user(id, year)
+  extra_text += "Number of attendees found for user: " + str(len(all_atts)) + "<br/>"
   # Check their memberships
   for att in all_atts:
    aga_id = check_aga_member(att, year)
+   extra_text += "<font size=\"" + font_size + "\">Now checking AGA# " + str(aga_id)  + "</font><br/>"
    if not is_current_membership(df,aga_id):
     aga_id_error = True
+    extra_text += "<font size=\"" + font_size + "\">AGA_ID_" + str(aga_id) + " NOT CURRENT</font><br/>"
    if not is_minor_good(att,year):
     minor_bad = True
+    extra_text +=  "<font size=\"" + font_size + "\">The above AGA_ID is a minor who we do NOT have a form for!</font><br/>"
 	  
  elif attendee_id and year and is_int(attendee_id) and is_int(year) and not user_id:
   is_user = False
   id = attendee_id
   aga_id = check_aga_member(id, year)
+  extra_text += "<font size=\"" + font_size + "\">Attendee ID found. Now checking AGA# " + str(aga_id) + "</font><br/>"
   if not is_current_membership(df,aga_id):
    aga_id_error = True
+   extra_text += "<font size=\"" + font_size + "\">AGA_ID_" + str(aga_id) + " NOT CURRENT</font><br/>"
   if not is_minor_good(id,year):
    minor_bad = True
+   extra_text +=  "<font size=\"" + font_size + "\">The above AGA_ID is a minor who we do NOT have a form for!</font><br/>"
  else:
   return "<style>body{background-color: red}</style>You're trying to break me! You didn't enter a valid attendee_id/user_id or you tried to enter both! Bad boy, you failed!"
  #if not email_hash:
@@ -204,7 +213,7 @@ def testadv():
  if minor_bad:
   format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Minor does not have signed waiver.</font><br/>"
  if 'style' not in format:
-  format = base_yellow + format
+  format = base_yellow + format + extra_text
  return format + "The user was invoiced: $" + str(invoice_total) + "<br/>The user paid/was comped: $" + str(user_paid) + "<br/>The user was refunded: $" + str(user_refund) + "<br/>Therefore, the user's final total owed is: $" + str(total_due)
 
 @app.route('/testbasic')
