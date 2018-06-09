@@ -9,9 +9,11 @@ app = Flask("intro")
 DATABASE_DEFAULT = 'postgres://khcldsyzgxvrin:b51bfd22c549f378c286cd20547978566232396a832143100ef576fd167bd9b2@ec2-107-20-188-239.compute-1.amazonaws.com:5432/dbl3c7ninomm7r'
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', DATABASE_DEFAULT)
 db = SQLAlchemy(app)
+
 with open("tdlista.txt","r") as my_file:
  text = [line.replace("\n","").split("\t") for line in my_file.readlines()]
  df = pd.DataFrame(text, columns=["Name","agaid","memtype","rating","expiry","club","state","sigma","joined"])
+ df['agaid'] = df['agaid'].astype("str")
 
 def get_email_hash(id, year, is_user=False):
  if not is_user:
@@ -148,7 +150,9 @@ def testadv():
  if user_id and year and is_int(user_id) and is_int(year) and not attendee_id:
   is_user = True
   id = user_id
+  # Get all attendees associated with user
   all_atts = get_atts_from_user(id, year)
+  # Check their memberships
   for att in all_atts:
    aga_id = check_aga_member(att, year)
    if not is_current_membership(df,aga_id):
@@ -165,7 +169,7 @@ def testadv():
   if not is_minor_good(id,year):
    minor_bad = True
  else:
-  return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
+  return "<style>body{background-color: red}</style>You're trying to break me! You didn't enter a valid attendee_id/user_id or you tried to enter both! Bad boy, you failed!"
  #if not email_hash:
   #return "FLAWED QR CODE!!!"
  #else:
@@ -178,7 +182,9 @@ def testadv():
  
  if not all_paid and all_paid != 0:
   return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
+ # Combine comp and paid together
  user_paid = all_paid[0]/100 + all_paid[1]/100
+ # Get refund
  user_refund = all_paid[2]/100
  invoice_total = get_invoice_total(id, year, is_user=is_user)
  if not invoice_total and invoice_total != 0:
@@ -198,20 +204,16 @@ def testadv():
 
 @app.route('/testbasic')
 def testbasic():
- user_id = request.args.get('attendee_id')
  year = request.args.get('year')
- all_plans = display_results("SELECT attendee_id,plan_id,quantity,year FROM attendee_plans WHERE attendee_id =" + str(user_id) + ";")
- sum_total = 0
- amounts = []
- for plan in all_plans:
-  cur_amount = float(get_price_from_id("plans",plan['plan_id'],year)) * int(plan['quantity'])
-  amounts.append(cur_amount)
-  sum_total += cur_amount
- all_activities = display_results("SELECT attendee_id,activity_id,year FROM attendee_activities WHERE attendee_id=" + str(user_id) + ";")
- for activity in all_activities:
-  sum_total += float(get_price_from_id("activities",activity['activity_id'],year))
- return str(all_plans) + "<br/><br/>" + str(all_activities) + "<br/><br/>" + str(sum_total) + "<br/>" + str(amounts) + "<br/>" + str(get_user('3667'))
-
+ results = display_results("SELECT id,year FROM attendees WHERE year=" + str(year))
+ my_string = ""
+ for my_dict in results:
+  my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?attendee_id=" + str(my_dict['id']) + "&year=" + str(my_dict['year'])  + "<br/>"
+ results = display_results("SELECT id,year FROM users WHERE year=" + str(year))
+ for my_dict in results:
+  my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?user_id=" + str(my_dict['id']) + "&year=" + str(my_dict['year']) + "<br/>"
+ return my_string
+ 
 '''@app.route('/table')
 def table():
  table = request.args.get('table')
