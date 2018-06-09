@@ -11,6 +11,33 @@ app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', DATABASE_
 db = SQLAlchemy(app)
 font_size = "10"
 
+
+from functools import wraps
+from flask import request, Response
+
+
+def check_auth(username, password):
+ """This function is called to check if a username /
+ password combination is valid.
+ """
+ return username == 'admin' and password == 'secret'
+
+def authenticate():
+ """Sends a 401 response that enables basic auth"""
+ return Response(
+ 'Could not verify your access level for that URL.\n'
+ 'You have to login with proper credentials', 401,
+ {'WWW-Authenticate': 'Basic realm="Login Required"'})
+
+def requires_auth(f):
+ @wraps(f)
+ def decorated(*args, **kwargs):
+  auth = request.authorization
+  if not auth or not check_auth(auth.username, auth.password):
+   return authenticate()
+  return f(*args, **kwargs)
+ return decorated
+
 with open("tdlista.txt","r") as my_file:
  text = [line.replace("\n","").split("\t") for line in my_file.readlines()]
  df = pd.DataFrame(text, columns=["Name","agaid","memtype","rating","expiry","club","state","sigma","joined"])
@@ -122,7 +149,7 @@ def is_current_membership(df, aga_id):
    return False
   else:
    db_datetime = parse(member['expiry'], dayfirst=False, yearfirst=False).datetime
-   end_date = parse("July 26th, 2018").datetime
+   end_date = parse("July 28th, 2018").datetime
    if db_datetime < end_date:
     no_membership = True
     return False
@@ -139,6 +166,7 @@ def basic():
  return "Hello World!!!"
 
 @app.route("/testadv")
+@requires_auth
 def testadv():
  attendee_id = request.args.get('attendee_id')
  user_id = request.args.get('user_id')
