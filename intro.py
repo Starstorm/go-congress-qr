@@ -79,11 +79,16 @@ def get_user(attendee_id):
   return result[0]['user_id']
 
 def is_checked_in(attendee_id):
- result = display_result("SELECT is_checked_in FROM attendees WHERE id=" + attendee_id + ";")
- return result[0]['is_checked_in']
+ #result = display_results("SELECT checked_in FROM attendees WHERE id=" + str(attendee_id) + ";")
+ #return result[0]['checked_in']
+ return False
 
-def get_atts_from_user(user_id, year):
- resp = display_results("SELECT id FROM attendees WHERE user_id=" + str(user_id) + " AND year=" + str(year) + " AND cancelled=False;")
+def get_atts_from_user(user_id, year, inc_cancel=False):
+ if not inc_cancel:
+  cancel_phrase = " AND cancelled=False"
+ else:
+  cancel_phrase = ""
+ resp = display_results("SELECT id FROM attendees WHERE user_id=" + str(user_id) + " AND year=" + str(year) + cancel_phrase  + ";")
  all_attendees = []
  for elem in resp:
   all_attendees.append(elem['id'])
@@ -96,7 +101,7 @@ def get_invoice_total(id, year, is_user=False):
    return False
  else:
   cur_user = id
- all_atts = get_atts_from_user(cur_user, year)
+ all_atts = get_atts_from_user(cur_user, year, inc_cancel=True)
  if len(all_atts) == 0:
   return False
  where_statement = "("
@@ -136,33 +141,42 @@ def get_paid_total(id, year, is_user=False):
    all_sale += tran['amount']
  return all_sale,all_comp,all_refund
 
-def check_aga_member(id, year):
- aga_id = display_results("SELECT aga_id FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
- if len(aga_id) == 1:
-  return aga_id[0]['aga_id']
- else:
-  return False
+def check_aga_member(df, id, year):
+ results = display_results("SELECT aga_id,given_name,family_name FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
+ if len(results) == 1:
+  if results[0]['aga_id']:
+   return results[0]['aga_id']
+  else:
+   full_name = results[0]['family_name'].capitalize() + ", " + results[0]['given_name']
+   member = df[(df['Name'] == full_name.strip())]
+   if len(member) == 1:
+    return member['agaid'].tolist()[0]
+ return False
 
 def is_current_membership(df, aga_id):
  if not aga_id:
   no_aga_id = True
   return False
  else:
-  member = df[(df['agaid'] == aga_id)]
+  member = df[(df['agaid'].str.strip() == str(aga_id))]
   if len(member) == 0:
    aga_id_not_found = True
    return False
   else:
-   db_datetime = parse(member['expiry'], dayfirst=False, yearfirst=False).datetime
+   db_datetime = parse(member['expiry'].tolist()[0], dayfirst=False, yearfirst=False).datetime
    end_date = parse("July 28th, 2018").datetime
    if db_datetime < end_date:
     no_membership = True
     return False
  return True
 
+def get_membership_expiry(df,aga_id):
+ member = df[(df['agaid'].str.strip() == str(aga_id))]
+ db_datetime = parse(member['expiry'].tolist()[0], dayfirst=False, yearfirst=False).date
+ return str(db_datetime)
 def get_name_from_id(id):
  results = display_results("SELECT given_name,family_name FROM attendees WHERE id=%s" % id)
- return " ".join(results[0])
+ return results[0]['given_name'] + " " + results[0]['family_name']
   
 def is_minor_good(id, year):
  results = display_results("SELECT understand_minor,minor_agreement_received FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
@@ -196,7 +210,6 @@ def testadv():
 
  if user_id and year and is_int(user_id) and is_int(year) and not attendee_id:
   is_user = True
-  extra_text += "<font size=\"" + font_size + "\">USER ID FOUND, Multple Attendees Possible</font><br/>"
   id = user_id
   # Get all attendees associated with user
   all_atts = get_atts_from_user(id, year)
@@ -205,11 +218,18 @@ def testadv():
   extra_text += "<font size=\"" + font_size + "\">Number of attendees found for user: " + str(len(all_atts)) + "</font><br/>"
   # Check their memberships
   for att in all_atts:
-   aga_id = check_aga_member(att, year)
-   extra_text += "<font size=\"" + font_size + "\">Now checking AGA# " + str(aga_id)  + "</font><br/>"
-   if not is_current_membership(df,aga_id):
+   aga_id = check_aga_member(df, att, year)
+   if aga_id:
+    extra_text += "<font size=\"" + font_size + "\">Now checking AGA# " + str(aga_id)  + "</font><br/>"
+   else:
+    name = get_name_from_id(att)
+    extra_text += "<font size=\"" + font_size + "\">WARNING: AGA ID# NOT FOUND FOR %s </font><br/>" % name
     aga_id_error = True
-    extra_text += "<font size=\"" + font_size + "\">AGA_ID_" + str(aga_id) + " NOT CURRENT</font><br/>"
+    continue 
+   if not is_current_membership(df,aga_id):
+    expiry = get_membership_expiry(df,aga_id)
+    aga_id_error = True
+    extra_text += "<font size=\"" + font_size + "\">AGA number " + str(aga_id) + " is not current, it expired on " + expiry + "</font><br/>"
    if not is_minor_good(att,year):
     minor_bad = True
     extra_text +=  "<font size=\"" + font_size + "\">The above AGA_ID is a minor who we do NOT have a form for!</font><br/>"
@@ -220,7 +240,7 @@ def testadv():
   result = display_results("SELECT cancelled FROM attendees WHERE id=" + str(id) + " AND year=" + year)
   if result[0]['cancelled'] == True:
    return "<style>body{background-color: yellow}</style>DATABASE SAYS ATTENDEE HAS CANCELLED! PLEASE GO TO OTHER LINE!"
-  aga_id = check_aga_member(id, year)
+  aga_id = check_aga_member(df, id, year)
   extra_text += "<font size=\"" + font_size + "\">Attendee ID found. Now checking AGA# " + str(aga_id) + "</font><br/>"
   if not is_current_membership(df,aga_id):
    aga_id_error = True
@@ -262,18 +282,18 @@ def testadv():
    for att in all_atts:
     if not is_checked_in(att):
      name = get_name_from_id(att)
-     result = display_result("UPDATE attendees SET checked_in=True WHERE id=%s" % att)
-     format += "%d<font size=\"%s\">Attendee %s has been successfully checked in!</font><br/>" % result,font_size,name
+     #result = display_results("UPDATE attendees SET checked_in=True WHERE id=%s" % att)
+     format += "<font size=\"{0}\">Attendee {1} has been successfully checked in!</font><br/>".format(font_size,name)
     else:
-     format += "%d<font size=\"%s\">WARNING: Attendee %s has ALREADY BEEN successfully checked  in!</font><br/>" % result,font_size,name
+     format += "<font size=\"{0}\">WARNING: Attendee {1} has ALREADY BEEN successfully checked  in!</font><br/>".format(font_size,name)
   elif not is_user:
    if not is_checked_in(id):
     name = get_name_from_id(id)
-    result = display_result("UPDATE attendees SET checked_in=True WHERE id=%s" % id)
+    #result = display_results("UPDATE attendees SET checked_in=True WHERE id=%s" % id)
     format += "<style>body{background-color: green}</style><font size=\"" + font_size + "\">"
     format += "Attendee %s has been successfully checked in!</font><br/>" % name
    else:
-    format += "%d<font size=\"%s\">Sorry, attendee %s has already checked in according to our system. Most likely, their Congress user checked him/her in</font><br/>" % result,font_size,name
+    format += "<font size=\"{0}\">Sorry, attendee {1} has already checked in according to our system. Most likely, their Congress user checked him/her in</font><br/>".format(font_size,name)
  if total_due > 0:
   format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Money is owed to the Congress</font><br/>"
  if aga_id_error:
