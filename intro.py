@@ -1,8 +1,10 @@
-from flask import Flask, request
+from flask import Flask, request, redirect
 from flask_sqlalchemy import SQLAlchemy
+import io
 import os
 import hashlib
 import pandas as pd
+import requests
 from delorean import parse
 
 app = Flask("intro")
@@ -15,12 +17,19 @@ font_size = "10"
 from functools import wraps
 from flask import request, Response
 
+def display_results(query):
+ result = db.session.execute(query)
+ db.session.commit()
+ final_result = []
+ for rowproxy in result:
+  final_result.append(dict(rowproxy.items()))
+ return final_result
 
 def check_auth(username, password):
  """This function is called to check if a username /
  password combination is valid.
  """
- return username == 'admin' and password == 'secret'
+ return username == 'staff' and password == 'congress123'
 
 def authenticate():
  """Sends a 401 response that enables basic auth"""
@@ -45,14 +54,14 @@ with open("tdlista.txt","r") as my_file:
 
 def get_email_hash(id, year, is_user=False):
  if not is_user:
-  resp = display_results("SELECT email FROM attendees WHERE id=" + id + " AND year=" + str(year)  + ";")
+  resp = display_results("SELECT email FROM attendees WHERE id=" + str(id) + " AND year=" + str(year)  + ";")
  else:
-  resp = display_results("SELECT email FROM users WHERE id=" + id + " AND year=" + str(year) + ";")
+  resp = display_results("SELECT email FROM users WHERE id=" + str(id) + " AND year=" + str(year) + ";")
  if len(resp) == 1:
   email = resp[0]['email']
  else:
   return False
- hash_object = hashlib.sha1(email)
+ hash_object = hashlib.sha1(email.encode('utf-8'))
  return hash_object.hexdigest()
 
 def is_int(s):
@@ -69,20 +78,16 @@ def get_user(attendee_id):
  else:
   return result[0]['user_id']
 
+def is_checked_in(attendee_id):
+ result = display_result("SELECT is_checked_in FROM attendees WHERE id=" + attendee_id + ";")
+ return result[0]['is_checked_in']
+
 def get_atts_from_user(user_id, year):
- resp = display_results("SELECT id FROM attendees WHERE user_id=" + str(user_id) + " AND year=" + str(year) + ";")
+ resp = display_results("SELECT id FROM attendees WHERE user_id=" + str(user_id) + " AND year=" + str(year) + " AND cancelled=False;")
  all_attendees = []
  for elem in resp:
   all_attendees.append(elem['id'])
  return all_attendees
-
-def display_results(query):
- result = db.session.execute(query)
- db.session.commit()
- final_result = []
- for rowproxy in result:
-  final_result.append(dict(rowproxy.items()))
- return final_result
 
 def get_invoice_total(id, year, is_user=False):
  if not is_user:
@@ -154,6 +159,10 @@ def is_current_membership(df, aga_id):
     no_membership = True
     return False
  return True
+
+def get_name_from_id(id):
+ results = display_results("SELECT given_name,family_name FROM attendees WHERE id=%s" % id)
+ return " ".join(results[0])
   
 def is_minor_good(id, year):
  results = display_results("SELECT understand_minor,minor_agreement_received FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
@@ -165,25 +174,33 @@ def is_minor_good(id, year):
 def basic():
  return "Hello World!!!"
 
-@app.route("/testadv")
+@app.route("/testadv",methods=['GET','POST'])
 @requires_auth
 def testadv():
+ global df
  attendee_id = request.args.get('attendee_id')
  user_id = request.args.get('user_id')
  year = request.args.get('year')
  email_hash = request.args.get('hash')
+ is_resync = request.args.get('is_resync')
+ extra_text = ""
+
+ if is_resync == "true":
+  extra_text += "<font size=\"" + font_size + "\">AGA Member Database Resynced</font><br/>"
+  df = resync()
+
  aga_id_error = False
  minor_bad = False
  membership_notes = ""
- extra_text = "<br/><font size=\"" + font_size + "\">EXTRA INFORMATION:</font><br/>"
- 
+ extra_text += "<br/><font size=\"" + font_size + "\">EXTRA INFORMATION:</font><br/>"
+
  if user_id and year and is_int(user_id) and is_int(year) and not attendee_id:
   is_user = True
   extra_text += "<font size=\"" + font_size + "\">USER ID FOUND, Multple Attendees Possible</font><br/>"
   id = user_id
   # Get all attendees associated with user
   all_atts = get_atts_from_user(id, year)
-  extra_text += "Number of attendees found for user: " + str(len(all_atts)) + "<br/>"
+  extra_text += "<font size=\"" + font_size + "\">Number of attendees found for user: " + str(len(all_atts)) + "</font><br/>"
   # Check their memberships
   for att in all_atts:
    aga_id = check_aga_member(att, year)
@@ -198,24 +215,29 @@ def testadv():
  elif attendee_id and year and is_int(attendee_id) and is_int(year) and not user_id:
   is_user = False
   id = attendee_id
+  result = display_results("SELECT cancelled FROM attendees WHERE id=" + str(id) + " AND year=" + year)
+  if result[0]['cancelled'] == True:
+   return "<style>body{background-color: yellow}</style>DATABASE SAYS ATTENDEE HAS CANCELLED! PLEASE GO TO OTHER LINE!"
   aga_id = check_aga_member(id, year)
   extra_text += "<font size=\"" + font_size + "\">Attendee ID found. Now checking AGA# " + str(aga_id) + "</font><br/>"
   if not is_current_membership(df,aga_id):
    aga_id_error = True
-   extra_text += "<font size=\"" + font_size + "\">AGA_ID_" + str(aga_id) + " NOT CURRENT</font><br/>"
+   extra_text += '<font size=\"" + font_size + "\">AGA_ID_%s NOT CURRENT</font><br/>' % aga_id
   if not is_minor_good(id,year):
    minor_bad = True
    extra_text +=  "<font size=\"" + font_size + "\">The above AGA_ID is a minor who we do NOT have a form for!</font><br/>"
  else:
   return "<style>body{background-color: red}</style>You're trying to break me! You didn't enter a valid attendee_id/user_id or you tried to enter both! Bad boy, you failed!"
- #if not email_hash:
-  #return "FLAWED QR CODE!!!"
- #else:
-  #site_hash = get_user_hash(id,year,is_user)
-  #if not site_hash:
-   #return "Could not get site hash!!"
-  #elif email_hash != site_hash:
-   #return "THE HASHES DON'T MATCH!!"
+
+ if not email_hash:
+  return "<style>body{background-color: red}</style>Your hash is missing!"
+ else:
+  site_hash = get_email_hash(id, year, is_user=is_user)
+  if not site_hash:
+   return "<style>body{background-color: red}</style>Your user is missing!"
+  elif email_hash != site_hash:
+   return "<style>body{background-color: red}</style>Hashes don't match!"
+
  all_paid = get_paid_total(id, year, is_user=is_user)
  
  if not all_paid and all_paid != 0:
@@ -233,27 +255,48 @@ def testadv():
  base_yellow = '<style>body{background-color: yellow}</style>'
  format = ''
  if total_due <= 0 and aga_id_error == False and minor_bad == False:
-  format = "<style>body{background-color: green}</style><font size=\"" + font_size + "\">All Paid Up!</font><br/>"
+  if is_user:
+   format += "<style>body{background-color: green}</style>"
+   for att in all_atts:
+    if not is_checked_in(att):
+     name = get_name_from_id(att)
+     result = display_result("UPDATE attendees SET checked_in=True WHERE id=%s" % att)
+     format += "%d<font size=\"%s\">Attendee %s has been successfully checked in!</font><br/>" % result,font_size,name
+    else:
+     format += "%d<font size=\"%s\">WARNING: Attendee %s has ALREADY BEEN successfully checked  in!</font><br/>" % result,font_size,name
+  elif not is_user:
+   if not is_checked_in(id):
+    name = get_name_from_id(id)
+    result = display_result("UPDATE attendees SET checked_in=True WHERE id=%s" % id)
+    format += "<style>body{background-color: green}</style><font size=\"" + font_size + "\">"
+    format += "Attendee %s has been successfully checked in!</font><br/>" % name
+   else:
+    format += "%d<font size=\"%s\">Sorry, attendee %s has already checked in according to our system. Most likely, their Congress user checked him/her in</font><br/>" % result,font_size,name
  if total_due > 0:
   format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Money is owed to the Congress</font><br/>"
  if aga_id_error:
   format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Could not find current AGA membership.</font><br/>"
+  request_url = request.url.replace("&is_resync=true","")
+  format += "<form action=\"" + request_url + "&is_resync=true\" method=\"post\"><input type=\"submit\" value=\"Resync AGA Members List\" /></form><br/>"
+  format += "Please note that AGA Member Resync may take 10-15 seconds<br/>"
  if minor_bad:
   format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Minor does not have signed waiver.</font><br/>"
- if 'style' not in format:
+ if '<style>' not in format:
   format = base_yellow + format + extra_text
  return format + "The user was invoiced: $" + str(invoice_total) + "<br/>The user paid/was comped: $" + str(user_paid) + "<br/>The user was refunded: $" + str(user_refund) + "<br/>Therefore, the user's final total owed is: $" + str(total_due)
 
 @app.route('/testbasic')
 def testbasic():
  year = request.args.get('year')
- results = display_results("SELECT id,year FROM attendees WHERE year=" + str(year))
+ results = display_results("SELECT id,email FROM attendees WHERE year=" + str(year))
  my_string = ""
  for my_dict in results:
-  my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?attendee_id=" + str(my_dict['id']) + "&year=" + str(my_dict['year'])  + "<br/>"
+  email_hash = get_email_hash(my_dict['id'],str(year),is_user=False)
+  my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?attendee_id=" + str(my_dict['id']) + "&year=" + year + "&hash=" + email_hash  + "<br/>"
  results = display_results("SELECT id,year FROM users WHERE year=" + str(year))
  for my_dict in results:
-  my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?user_id=" + str(my_dict['id']) + "&year=" + str(my_dict['year']) + "<br/>"
+  email_hash = get_email_hash(my_dict['id'],str(year),is_user=True)
+  my_string += "https://sleepy-springs-94281.herokuapp.com/testadv?user_id=" + str(my_dict['id']) + "&year=" + year + "&hash=" + email_hash + "<br/>"
  return my_string
  
 @app.route('/table')
@@ -271,6 +314,14 @@ def table():
  return my_string
 
  return str(display_results("SELECT * FROM " + table + add_on + ";"))
+
+def resync():
+ response = requests.get("https://www.usgo.org/mm/tdlista.txt")
+ orig_file = io.StringIO(response.text)
+ text = [line.replace("\n","").split("\t") for line in orig_file.readlines()]
+ df = pd.DataFrame(text, columns=["Name","agaid","memtype","rating","expiry","club","state","sigma","joined"])
+ df['agaid'] = df['agaid'].astype("str")
+ return df
 
 if __name__ == '__main__':
  from flask_sqlalchemy import get_debug_queries
