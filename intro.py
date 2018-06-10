@@ -200,6 +200,8 @@ def testadv():
   id = user_id
   # Get all attendees associated with user
   all_atts = get_atts_from_user(id, year)
+  if len(all_atts) == 0:
+   return "<style>body{background-color: yellow}</style>DATABASE SAYS ALL ATTENDEES UNDER THIS USER HAVE CANCELLED.</font><br/>"
   extra_text += "<font size=\"" + font_size + "\">Number of attendees found for user: " + str(len(all_atts)) + "</font><br/>"
   # Check their memberships
   for att in all_atts:
