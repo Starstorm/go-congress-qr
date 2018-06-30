@@ -265,9 +265,7 @@ def testadv():
     elif email_hash != site_hash:
      return "<style>body{background-color: red}</style>Hashes don't match!"
    if construct_row[8] <= 0 and construct_row[4] != "NOT FOUND" and is_member and not is_expired and not ((construct_row[9] == True) and (construct_row[10] == False)):
-    bgcolor = "<style>body{background-color: green}</style>"
     if not is_checked_in(att):
-     result = display_results("UPDATE attendees SET checked_in=True WHERE id=%s" % att)
      construct_row[0] = "GOOD"
      construct_row[1] = "No problems"
     else:
@@ -275,7 +273,7 @@ def testadv():
      construct_row[1] = "Attendee ALREADY Checked In!"
    else:
     construct_row[0] = "PROBLEM"
-    bgcolor = "<style>body{background-color: yellow}</style>"
+    
     if construct_row[8] > 0:
      construct_row[1] += "SIGN-IN FAILED: Money is owed to the Congress<br/>"
     if construct_row[4] == "NOT FOUND":
@@ -287,6 +285,12 @@ def testadv():
    temp_output_df.append(construct_row)
   #temp_output_df.append(['CHECKED IN','No problems with any users','','','','','','','','','',''])
   output_df = pd.DataFrame(temp_output_df,columns=["Overall Status","Explanation","Given Name","Family Name","AGA ID","When AGA Expires?","Amount Invoiced","Amount Paid (+Refund)","Amount Owed","Is Child?","Is Child Form Signed?","Is Already Checked In?"])
+  if "PROBLEM" in output_df['Overall Status'].tolist():
+   bgcolor = "<style>body{background-color: yellow}</style>"
+  else:
+   bgcolor = "<style>body{background-color: green}</style>"
+   for att in all_atts:
+    result = display_results("UPDATE attendees SET checked_in=True WHERE id=%s" % att)
   button = "<br/><a href='" + request.url + "&is_resync=true'>Resync AGA Member List</a><br/>Please note that AGA Member Resync may take 10-15 seconds<br/>"
   return bgcolor + basic_df.to_html(index=False) + "<br/><br/>" + output_df.to_html() +  "<br/><br/>" + button
 
