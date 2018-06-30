@@ -8,11 +8,11 @@ import requests
 from delorean import parse
 
 app = Flask("intro")
-DATABASE_DEFAULT = 'postgres://khcldsyzgxvrin:b51bfd22c549f378c286cd20547978566232396a832143100ef576fd167bd9b2@ec2-107-20-188-239.compute-1.amazonaws.com:5432/dbl3c7ninomm7r'
+DATABASE_DEFAULT = "postgres://epbfddrayozxxg:b9cb2db4bf5151f07e7b4deccd310d80dd3840500cf74549f56a398d57cf59b4@ec2-54-83-51-38.compute-1.amazonaws.com:5432/dfh7gmt30l91bc"
 app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL', DATABASE_DEFAULT)
 db = SQLAlchemy(app)
 font_size = "10"
-
+pd.set_option('display.max_colwidth', -1)
 
 from functools import wraps
 from flask import request, Response
@@ -21,9 +21,12 @@ def display_results(query):
  result = db.session.execute(query)
  db.session.commit()
  final_result = []
- for rowproxy in result:
-  final_result.append(dict(rowproxy.items()))
- return final_result
+ if "UPDATE" not in query:
+  for rowproxy in result:
+   final_result.append(dict(rowproxy.items()))
+  return final_result
+ else:
+  return False
 
 def check_auth(username, password):
  """This function is called to check if a username /
@@ -79,9 +82,8 @@ def get_user(attendee_id):
   return result[0]['user_id']
 
 def is_checked_in(attendee_id):
- #result = display_results("SELECT checked_in FROM attendees WHERE id=" + str(attendee_id) + ";")
- #return result[0]['checked_in']
- return False
+ result = display_results("SELECT checked_in FROM attendees WHERE id=" + str(attendee_id) + " AND year=2018;")
+ return result[0]['checked_in']
 
 def get_atts_from_user(user_id, year, inc_cancel=False):
  if not inc_cancel:
@@ -94,6 +96,13 @@ def get_atts_from_user(user_id, year, inc_cancel=False):
   all_attendees.append(elem['id'])
  return all_attendees
 
+@app.route("/invoice")
+def invoice():
+ attendee_id = request.args.get('attendee_id')
+ year = request.args.get('year')
+ return get_invoice_total(attendee_id,year,is_user=False)
+ 
+
 def get_invoice_total(id, year, is_user=False):
  if not is_user:
   cur_user = get_user(id)
@@ -104,6 +113,7 @@ def get_invoice_total(id, year, is_user=False):
  all_atts = get_atts_from_user(cur_user, year, inc_cancel=True)
  if len(all_atts) == 0:
   return False
+  
  where_statement = "("
  for att in all_atts:
   where_statement += "(attendee_id=" + str(att) + ") OR "
@@ -121,13 +131,8 @@ def get_price_from_id(type, id, year):
  temp_results = display_results("SELECT price FROM " + type + " WHERE id=" + str(id) + " AND year=" + str(year) + ";")
  return temp_results[0]['price']
 
-def get_paid_total(id, year, is_user=False):
- if not is_user:
-  cur_user = get_user(id)
-  if not cur_user:
-   return False
- else:
-  cur_user = id
+def get_paid_total(id, year):
+ cur_user = id
  all_trans = display_results("SELECT trantype,amount FROM transactions WHERE user_id=" + str(cur_user) + " AND year=" + str(year) + ";")
  all_refund = 0
  all_comp = 0
@@ -156,156 +161,134 @@ def check_aga_member(df, id, year):
 def is_current_membership(df, aga_id):
  if not aga_id:
   no_aga_id = True
-  return False
+  return False,False,False
  else:
   member = df[(df['agaid'].str.strip() == str(aga_id))]
   if len(member) == 0:
    aga_id_not_found = True
-   return False
+   return False,False,False
   else:
-   db_datetime = parse(member['expiry'].tolist()[0], dayfirst=False, yearfirst=False).datetime
-   end_date = parse("July 28th, 2018").datetime
+   db_datetime = parse(member['expiry'].tolist()[0], dayfirst=False, yearfirst=False).date
+   end_date = parse("July 28th, 2018").date
    if db_datetime < end_date:
-    no_membership = True
-    return False
- return True
-
-def get_membership_expiry(df,aga_id):
- member = df[(df['agaid'].str.strip() == str(aga_id))]
- db_datetime = parse(member['expiry'].tolist()[0], dayfirst=False, yearfirst=False).date
- return str(db_datetime)
+    return False,db_datetime,True
+ return True,db_datetime,False
+ 
 def get_name_from_id(id):
  results = display_results("SELECT given_name,family_name FROM attendees WHERE id=%s" % id)
  return results[0]['given_name'] + " " + results[0]['family_name']
-  
-def is_minor_good(id, year):
- results = display_results("SELECT understand_minor,minor_agreement_received FROM attendees WHERE id=" + str(id) + " AND year=" + str(year) + ";")
- if results[0]['understand_minor'] == True and results[0]['minor_agreement_received'] == False:
-  return False
- return True
-  
-@app.route('/basic')
-def basic():
- return "Hello World!!!"
+
 
 @app.route("/testadv",methods=['GET','POST'])
 @requires_auth
 def testadv():
  global df
+ temp_output_df = []
  attendee_id = request.args.get('attendee_id')
  user_id = request.args.get('user_id')
  year = request.args.get('year')
  email_hash = request.args.get('hash')
  is_resync = request.args.get('is_resync')
- extra_text = ""
+ temp_basic_df = []
 
  if is_resync == "true":
-  extra_text += "<font size=\"" + font_size + "\">AGA Member Database Resynced</font><br/>"
+  temp_basic_df.append("AGA Member Database Resynced")
   df = resync()
 
  aga_id_error = False
  minor_bad = False
  membership_notes = ""
- extra_text += "<br/><font size=\"" + font_size + "\">EXTRA INFORMATION:</font><br/>"
-
- if user_id and year and is_int(user_id) and is_int(year) and not attendee_id:
-  is_user = True
-  id = user_id
-  # Get all attendees associated with user
-  all_atts = get_atts_from_user(id, year)
+ construct_row = ['','','','','','','','','','','','']
+ 
+ if year and is_int(year):
+  if user_id and not attendee_id:
+   is_user = True
+   id = user_id
+   all_atts = get_atts_from_user(id, year)
+  elif attendee_id and not user_id:
+   is_user = False
+   id = attendee_id
+   user_id = get_user(id)
+   all_atts = get_atts_from_user(user_id, year)
+  else:
+   return "<style>body{background-color: red}</style>You're trying to break me! You didn't enter a valid attendee_id/user_id or you tried to enter both! Bad boy, you failed!"
   if len(all_atts) == 0:
-   return "<style>body{background-color: yellow}</style>DATABASE SAYS ALL ATTENDEES UNDER THIS USER HAVE CANCELLED.</font><br/>"
-  extra_text += "<font size=\"" + font_size + "\">Number of attendees found for user: " + str(len(all_atts)) + "</font><br/>"
+   temp_basic_df.append("DATABASE SAYS ALL ATTENDEES UNDER CURRENT USER ACCOUNT HAVE CANCELLED.")
+   return "<style>body{background-color: yellow}</style>" + str(temp_basic_df)
+  if not attendee_id:
+   temp_basic_df.append("Number of attendees attempting to check in at once: " + str(len(all_atts)))
+  else:
+   temp_basic_df.append("Number of attendees attempting to check in at once: 1")
+  basic_df = pd.DataFrame(temp_basic_df, columns=["Basic Information"])
+  
+  all_paid = get_paid_total(user_id, year)
+  if not all_paid and all_paid != 0:
+   return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
+  # Combine comp and paid together
+  user_paid = all_paid[0]/100 + all_paid[1]/100
+  # Get refund
+  user_refund = all_paid[2]/100
+  paid_and_refund = user_paid + user_refund
+  invoice_total = get_invoice_total(id, year, is_user=is_user)
+  if not invoice_total and invoice_total != 0:
+   return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
+  else:
+   invoice_total = invoice_total/100
+  total_due = invoice_total - user_paid + user_refund
+  if total_due > -0.5 and total_due < 0.5:
+   total_due = 0
+  format = ''
+  if attendee_id:
+   all_atts = [attendee_id]
   # Check their memberships
   for att in all_atts:
+   try:
+    result = display_results("SELECT * FROM attendees WHERE id=" + str(att) + " AND year=" + str(year) + ";")[0]
+   except:
+    continue
+   construct_row = ['','',result['given_name'],result['family_name'],'','',invoice_total,paid_and_refund,total_due,result['understand_minor'],result['minor_agreement_received'],result['checked_in']]
    aga_id = check_aga_member(df, att, year)
+   is_expired = True
    if aga_id:
-    extra_text += "<font size=\"" + font_size + "\">Now checking AGA# " + str(aga_id)  + "</font><br/>"
+    construct_row[4] = aga_id
+    is_member,member_expiry,is_expired = is_current_membership(df,aga_id)
+    construct_row[5] = str(is_member) + " - Expires: " + str(member_expiry)
    else:
-    name = get_name_from_id(att)
-    extra_text += "<font size=\"" + font_size + "\">WARNING: AGA ID# NOT FOUND FOR %s </font><br/>" % name
-    aga_id_error = True
-    continue 
-   if not is_current_membership(df,aga_id):
-    expiry = get_membership_expiry(df,aga_id)
-    aga_id_error = True
-    extra_text += "<font size=\"" + font_size + "\">AGA number " + str(aga_id) + " is not current, it expired on " + expiry + "</font><br/>"
-   if not is_minor_good(att,year):
-    minor_bad = True
-    extra_text +=  "<font size=\"" + font_size + "\">The above AGA_ID is a minor who we do NOT have a form for!</font><br/>"
-	  
- elif attendee_id and year and is_int(attendee_id) and is_int(year) and not user_id:
-  is_user = False
-  id = attendee_id
-  result = display_results("SELECT cancelled FROM attendees WHERE id=" + str(id) + " AND year=" + year)
-  if result[0]['cancelled'] == True:
-   return "<style>body{background-color: yellow}</style>DATABASE SAYS ATTENDEE HAS CANCELLED! PLEASE GO TO OTHER LINE!"
-  aga_id = check_aga_member(df, id, year)
-  extra_text += "<font size=\"" + font_size + "\">Attendee ID found. Now checking AGA# " + str(aga_id) + "</font><br/>"
-  if not is_current_membership(df,aga_id):
-   aga_id_error = True
-   extra_text += '<font size=\"" + font_size + "\">AGA_ID_%s NOT CURRENT</font><br/>' % aga_id
-  if not is_minor_good(id,year):
-   minor_bad = True
-   extra_text +=  "<font size=\"" + font_size + "\">The above AGA_ID is a minor who we do NOT have a form for!</font><br/>"
- else:
-  return "<style>body{background-color: red}</style>You're trying to break me! You didn't enter a valid attendee_id/user_id or you tried to enter both! Bad boy, you failed!"
-
- if not email_hash:
-  return "<style>body{background-color: red}</style>Your hash is missing!"
- else:
-  site_hash = get_email_hash(id, year, is_user=is_user)
-  if not site_hash:
-   return "<style>body{background-color: red}</style>Your user is missing!"
-  elif email_hash != site_hash:
-   return "<style>body{background-color: red}</style>Hashes don't match!"
-
- all_paid = get_paid_total(id, year, is_user=is_user)
- 
- if not all_paid and all_paid != 0:
-  return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
- # Combine comp and paid together
- user_paid = all_paid[0]/100 + all_paid[1]/100
- # Get refund
- user_refund = all_paid[2]/100
- invoice_total = get_invoice_total(id, year, is_user=is_user)
- if not invoice_total and invoice_total != 0:
-  return "<style>body{background-color: red}</style>You're trying to break me! Bad boy, you failed!"
- else:
-  invoice_total = invoice_total/100
- total_due = invoice_total - user_paid + user_refund
- base_yellow = '<style>body{background-color: yellow}</style>'
- format = ''
- if total_due <= 0 and aga_id_error == False and minor_bad == False:
-  if is_user:
-   format += "<style>body{background-color: green}</style>"
-   for att in all_atts:
+    construct_row[4] = "NOT FOUND"
+    construct_row[5] = "N/A"
+   if not email_hash:
+    return "<style>body{background-color: red}</style>Your hash is missing!"
+   else:
+    site_hash = get_email_hash(id, year, is_user=is_user)
+    if not site_hash:
+     return "<style>body{background-color: red}</style>System error! User ID not found!"
+    elif email_hash != site_hash:
+     return "<style>body{background-color: red}</style>Hashes don't match!"
+   if construct_row[8] <= 0 and construct_row[4] != "NOT FOUND" and is_member and not is_expired and not ((construct_row[9] == True) and (construct_row[10] == False)):
+    bgcolor = "<style>body{background-color: green}</style>"
     if not is_checked_in(att):
-     name = get_name_from_id(att)
-     #result = display_results("UPDATE attendees SET checked_in=True WHERE id=%s" % att)
-     format += "<font size=\"{0}\">Attendee {1} has been successfully checked in!</font><br/>".format(font_size,name)
+     result = display_results("UPDATE attendees SET checked_in=True WHERE id=%s" % att)
+     construct_row[0] = "GOOD"
+     construct_row[1] = "No problems"
     else:
-     format += "<font size=\"{0}\">WARNING: Attendee {1} has ALREADY BEEN successfully checked  in!</font><br/>".format(font_size,name)
-  elif not is_user:
-   if not is_checked_in(id):
-    name = get_name_from_id(id)
-    #result = display_results("UPDATE attendees SET checked_in=True WHERE id=%s" % id)
-    format += "<style>body{background-color: green}</style><font size=\"" + font_size + "\">"
-    format += "Attendee %s has been successfully checked in!</font><br/>" % name
+     construct_row[0] = "99% GOOD"
+     construct_row[1] = "Attendee ALREADY Checked In!"
    else:
-    format += "<font size=\"{0}\">Sorry, attendee {1} has already checked in according to our system. Most likely, their Congress user checked him/her in</font><br/>".format(font_size,name)
- if total_due > 0:
-  format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Money is owed to the Congress</font><br/>"
- if aga_id_error:
-  format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Could not find current AGA membership.</font><br/>"
-  request_url = request.url.replace("&is_resync=true","")
-  format += "<form action=\"" + request_url + "&is_resync=true\" method=\"post\"><input type=\"submit\" value=\"Resync AGA Members List\" /></form><br/>"
-  format += "Please note that AGA Member Resync may take 10-15 seconds<br/>"
- if minor_bad:
-  format += "<font size=\"" + font_size + "\">SIGN-IN FAILED: Minor does not have signed waiver.</font><br/>"
- if '<style>' not in format:
-  format = base_yellow + format + extra_text
- return format + "The user was invoiced: $" + str(invoice_total) + "<br/>The user paid/was comped: $" + str(user_paid) + "<br/>The user was refunded: $" + str(user_refund) + "<br/>Therefore, the user's final total owed is: $" + str(total_due)
+    construct_row[0] = "PROBLEM"
+    bgcolor = "<style>body{background-color: yellow}</style>"
+    if construct_row[8] > 0:
+     construct_row[1] += "SIGN-IN FAILED: Money is owed to the Congress<br/>"
+    if construct_row[4] == "NOT FOUND":
+     construct_row[1] += "SIGN-IN FAILED: Could not find AGA ID<br/>"
+    if is_expired:
+     construct_row[1] += "SIGN-IN FAILED: AGA ID has expired!<br/>"
+    if (construct_row[9] == True) and (construct_row[10] == False):
+     construct_row[1] += "SIGN-IN FAILED: Minor does not have signed waiver.<br/>"
+   temp_output_df.append(construct_row)
+  #temp_output_df.append(['CHECKED IN','No problems with any users','','','','','','','','','',''])
+  output_df = pd.DataFrame(temp_output_df,columns=["Overall Status","Explanation","Given Name","Family Name","AGA ID","When AGA Expires?","Amount Invoiced","Amount Paid (+Refund)","Amount Owed","Is Child?","Is Child Form Signed?","Is Already Checked In?"])
+  button = "<br/><a href='" + request.url + "&is_resync=true'>Resync AGA Member List</a><br/>Please note that AGA Member Resync may take 10-15 seconds<br/>"
+  return bgcolor + basic_df.to_html(index=False) + "<br/><br/>" + output_df.to_html() +  "<br/><br/>" + button
 
 @app.route('/testbasic')
 def testbasic():
