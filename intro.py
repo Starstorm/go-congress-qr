@@ -97,6 +97,7 @@ def get_atts_from_user(user_id, year, inc_cancel=False):
  return all_attendees
 
 @app.route("/invoice")
+@requires_auth
 def invoice():
  attendee_id = request.args.get('attendee_id')
  year = request.args.get('year')
@@ -295,6 +296,7 @@ def testadv():
   return bgcolor + basic_df.to_html(index=False) + "<br/><br/>" + output_df.to_html() +  "<br/><br/>" + button
 
 @app.route('/testbasic')
+@requires_auth
 def testbasic():
  year = request.args.get('year')
  results = display_results("SELECT id,email FROM attendees WHERE year=" + str(year))
@@ -309,6 +311,7 @@ def testbasic():
  return my_string
  
 @app.route('/table')
+@requires_auth
 def table():
  year = request.args.get('year')
  results = display_results("SELECT id,year,understand_minor,minor_agreement_received FROM attendees WHERE understand_minor='t' AND year=" + str(year))
